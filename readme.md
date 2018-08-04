@@ -1,0 +1,1 @@
+This is based off of Mike Bostock's series, [*Command Line Cartography*](https://medium.com/@mbostock/command-line-cartography-part-1-897aa8f8ca2c), and his corresponding [block](https://bl.ocks.org/mbostock/fb6c1e5ff700f9713a9dc2f0fd392c35).

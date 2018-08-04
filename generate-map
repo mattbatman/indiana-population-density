@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# NAD83 / Indiana West (EPSG:26974)
+PROJECTION='d3.geoTransverseMercator().rotate([87 + 5 / 60, -37 - 30 / 60])'
+
+# The state FIPS code - Indiana is 18
+STATE=18
+
+# The ACS 5-Year Estimate vintage
+YEAR=2016
+
+# The display size
+WIDTH=960
+HEIGHT=1100
+
+# Edit XXX with your census key
+CENSUS_KEY=XXX
+
+mkdir -p data
+
+# Download the census boundary files
+# Extract the shapefile
+if [ ! -f ./data/cb_${YEAR}_${STATE}_tract_500k.shp ]; then
+  curl -o ./data/cb_${YEAR}_${STATE}_tract_500k.zip \
+    "https://www2.census.gov/geo/tiger/GENZ${YEAR}/shp/cb_${YEAR}_${STATE}_tract_500k.zip"
+  unzip -o \
+    ./data/cb_${YEAR}_${STATE}_tract_500k.zip -d data
+fi
+
+# Convert shp to JSON
+# Project JSON
+# Create NDJSON from Projected JSON
+# Map by ID for joining with population estimates a couple steps below
+shp2json ./data/cb_${YEAR}_${STATE}_tract_500k.shp \
+  | geoproject "${PROJECTION}.fitSize([${WIDTH}, ${HEIGHT}], d)" \
+  | ndjson-split 'd.features' \
+  | ndjson-map 'd.id = d.properties.GEOID.slice(2), d' \
+  > ./data/geometry.ndjson
+
+# Download census data, pipe and transform JSON to NDJSON
+if [ ! -f ./data/cb_${YEAR}_${STATE}_tract_B01003.ndjson ]; then
+  curl "https://api.census.gov/data/${YEAR}/acs/acs5?get=B01003_001E&for=tract:*&in=state:${STATE}&key=${CENSUS_KEY}" -o ./data/cb_${YEAR}_${STATE}_tract_B01003.json
+fi
+
+# Convert the JSON array to an NDJSON stream
+ndjson-cat ./data/cb_${YEAR}_${STATE}_tract_B01003.json \
+  | ndjson-split 'd.slice(1)' \
+  | ndjson-map '{id: d[2] + d[3], B01003: +d[0]}' \
+  > ./data/cb_${YEAR}_${STATE}_tract_B01003.ndjson
+
+# Join the population data to the geometry data
+# Compute the population density and remove elements no longer needed
+ndjson-join 'd.id' \
+  ./data/geometry.ndjson \
+  ./data/cb_${YEAR}_${STATE}_tract_B01003.ndjson \
+  | ndjson-map 'd[0].properties = {density: Math.floor(d[1].B01003 / d[0].properties.ALAND * 2589975.2356)}, d[0]' \
+  > ./data/density.ndjson
+
+# Simplify and quantize
+geo2topo -n \
+  tracts=./data/density.ndjson \
+  | toposimplify -p 1 -f \
+  | topoquantize 1e5 \
+  > ./data/quantized-topo.json
+
+# Start to overlay counties on census tracts
+# But only internal borders
+topomerge -k 'd.id.slice(0, 3)' counties=tracts \
+  < ./data/quantized-topo.json \
+  | topomerge --mesh -f 'a !== b' counties=counties \
+  > ./data/topo.json
+
+(topo2geo tracts=- \
+    < ./data/topo.json \
+    | ndjson-map -r d3 -r d3=d3-scale-chromatic 'z = d3.scaleThreshold().domain([1, 10, 50, 200, 500, 1000, 2000, 4000]).range(d3.schemeYlGnBu[9]), d.features.forEach(f => f.properties.fill = z(f.properties.density)), d' \
+    | ndjson-split 'd.features'; \
+topo2geo counties=- \
+    < ./data/topo.json \
+    | ndjson-map 'd.properties = {"stroke": "#000", "stroke-opacity": 0.3}, d')\
+  | geo2svg -n --stroke none -p 1 -w ${WIDTH} -h ${HEIGHT} \
+  > ./docs/topo.svg

@@ -1,0 +1,54 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: monospace;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 2em;
+  margin-top: 1em;
+  margin-bottom: 1.5em;
+}
+
+.map {
+  max-width: 100vw;
+  width: 960px;
+  height: auto;
+}
+
+.legend {
+  align-self: flex-end;
+  max-width: 95vw;
+}
+
+.container {
+  width: 95vw;
+  margin: 0 auto;
+  max-width: 900px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  text-align: center;
+}
+
+.container::before {
+  display: table;
+  content: "";
+}
+
+.container::after {
+  display: table;
+  clear: both;
+  content: "";
+}
+
+@media (min-width: 700px) {
+  h1 {
+    font-size: 2.666em;
+  }
+}
